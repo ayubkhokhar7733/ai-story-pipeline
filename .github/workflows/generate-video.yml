@@ -1,0 +1,133 @@
+name: Generate and Upload AI Story Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Story topic or prompt'
+        required: true
+        default: 'The Midnight Lantern That Remembered Forgotten Wishes'
+        type: string
+      aspect:
+        description: 'Video format (9:16 Vertical Shorts or 16:9 Landscape)'
+        required: true
+        default: '9:16'
+        type: choice
+        options:
+          - '9:16'
+          - '16:9'
+      voice:
+        description: 'Edge-TTS neural voice (English / Urdu)'
+        required: true
+        default: 'en-US-GuyNeural'
+        type: choice
+        options:
+          - 'en-US-GuyNeural'
+          - 'en-US-ChristopherNeural'
+          - 'en-US-JennyNeural'
+          - 'ur-PK-AsadNeural'
+          - 'ur-PK-UzmaNeural'
+      character:
+        description: 'Protagonist character anchor'
+        required: true
+        default: 'leo_fox'
+        type: choice
+        options:
+          - 'leo_fox'
+          - 'chacha_bashir'
+          - 'zainab_explorer'
+          - 'captain_orion'
+          - 'none'
+      duration:
+        description: 'Target duration in seconds'
+        required: true
+        default: '35'
+        type: string
+      privacy:
+        description: 'YouTube privacy status'
+        required: true
+        default: 'unlisted'
+        type: choice
+        options:
+          - 'unlisted'
+          - 'private'
+          - 'public'
+      upload_to_youtube:
+        description: 'Upload generated video directly to YouTube'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  generate-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install FFmpeg and Fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-noto-core
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate Story Video and Upload to YouTube
+        id: pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          AI_HORDE_API_KEY: '0000000000'
+        run: |
+          ARGS=(
+            --topic "${{ github.event.inputs.topic }}"
+            --aspect "${{ github.event.inputs.aspect }}"
+            --voice "${{ github.event.inputs.voice }}"
+            --character "${{ github.event.inputs.character }}"
+            --duration "${{ github.event.inputs.duration }}"
+            --privacy "${{ github.event.inputs.privacy }}"
+          )
+          if [ "${{ github.event.inputs.upload_to_youtube }}" = "true" ]; then
+            ARGS+=(--upload-youtube)
+          fi
+          python generate_video.py "${ARGS[@]}"
+
+      - name: Print Live YouTube Link and Summary
+        if: always()
+        run: |
+          if [ -f output/result.json ]; then
+            cat output/result.json
+            VIDEO_URL=$(python -c "import json; d=json.load(open('output/result.json', encoding='utf-8')); print(d.get('video_url') or '')")
+            TITLE=$(python -c "import json; d=json.load(open('output/result.json', encoding='utf-8')); print(d.get('title') or '')")
+            echo "### Render Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Title:** ${TITLE}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Format:** ${{ github.event.inputs.aspect }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Voice:** ${{ github.event.inputs.voice }}" >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$VIDEO_URL" ]; then
+              echo "LIVE_YOUTUBE_URL=${VIDEO_URL}"
+              echo "- **Live YouTube URL:** [${VIDEO_URL}](${VIDEO_URL})" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+      - name: Upload Rendered Video Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: story-video-${{ github.run_id }}
+          path: |
+            output/*.mp4
+            output/result.json
+          retention-days: 14
