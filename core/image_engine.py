@@ -22,57 +22,66 @@ MOOD_PALETTES = {
 
 def generate_scene_images(scenes: list, aspect: str = "9:16") -> list:
     """
-    Generates coherent scene-by-scene artwork.
-    Uses AI Horde free cluster with sequential img2img chaining when available,
-    and falls back to a rich stylized procedural storybook illustration if Horde is slow/offline.
+    Generates distinct scene-by-scene artwork using Pollinations (Flux) as primary,
+    AI Horde txt2img as secondary, and stylized procedural art as fallback.
+    No img2img chaining so every scene has its own dynamic camera angle & composition.
     """
-    preset = config.ASPECT_PRESETS.get(aspect, config.ASPECT_PRESETS["9:16"])
-    req_w = min(preset["image_width"], 512)
-    req_h = min(preset["image_height"], 512)
+    import urllib.parse
 
-    locked_model = None
-    base_seed = None
-    prev_scene_path = None
+    preset = config.ASPECT_PRESETS.get(aspect, config.ASPECT_PRESETS["9:16"])
+    poly_w = preset["image_width"]
+    poly_h = preset["image_height"]
+    horde_w = min(poly_w, 512)
+    horde_h = min(poly_h, 512)
+
     total = len(scenes)
+    base_seed = random.randint(1000, 999999)
 
     for idx, scene in enumerate(scenes, 1):
         scene_id = scene.get("scene_id", idx)
         prompt = scene.get("full_image_prompt") or scene.get("visual_prompt", "storybook landscape")
         out_path = os.path.join(config.TEMP_DIR, f"scene_{scene_id:02d}.png")
+        scene_seed = base_seed + idx * 101
 
-        print(f"[image_engine] Scene {idx}/{total}: {prompt[:70]}...", flush=True)
+        print(f"[image_engine] Scene {idx}/{total}: {prompt[:75]}...", flush=True)
 
         success = False
-        ref_path = prev_scene_path if (idx > 1 and prev_scene_path and os.path.exists(prev_scene_path)) else None
+        # 1. Try Pollinations.ai (Flux, native aspect ratio, fast, zero GPU)
+        try:
+            encoded = urllib.parse.quote(prompt, safe="")
+            url = (
+                f"https://image.pollinations.ai/prompt/{encoded}"
+                f"?width={poly_w}&height={poly_h}&model=flux&seed={scene_seed}&nologo=true"
+            )
+            resp = requests.get(url, timeout=45)
+            if resp.status_code == 200 and len(resp.content) > 5000:
+                img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+                img.save(out_path, "PNG")
+                scene["image_path"] = out_path
+                success = True
+                print(f"[image_engine] Scene {scene_id} generated via Pollinations (Flux {poly_w}x{poly_h})", flush=True)
+        except Exception as exc:
+            print(f"[image_engine] Scene {scene_id} Pollinations skipped: {exc}", flush=True)
 
-        for attempt in range(2):
+        # 2. Fallback to AI Horde txt2img (fresh composition per scene)
+        if not success:
             try:
-                img_data, used_model, used_seed = _request_horde_image(
+                img_data, used_model, _ = _request_horde_image(
                     prompt=prompt,
-                    width=req_w,
-                    height=req_h,
-                    ref_image_path=ref_path if attempt == 0 else None,
-                    target_model=locked_model,
-                    denoising_strength=0.60,
-                    seed=str(base_seed + idx * 17) if base_seed else None,
+                    width=horde_w,
+                    height=horde_h,
+                    ref_image_path=None,
+                    target_model=None,
+                    seed=str(scene_seed),
                 )
                 _save_horde_image(img_data, out_path)
                 scene["image_path"] = out_path
-                prev_scene_path = out_path
                 success = True
-
-                if idx == 1 or not locked_model:
-                    locked_model = used_model
-                    try:
-                        base_seed = int(used_seed)
-                    except (TypeError, ValueError):
-                        base_seed = 1042
-                    print(f"[image_engine] Style locked -> model='{locked_model}', seed={base_seed}", flush=True)
-                break
+                print(f"[image_engine] Scene {scene_id} generated via AI Horde ({used_model})", flush=True)
             except Exception as exc:
-                print(f"[image_engine] Scene {scene_id} Horde attempt {attempt + 1} skipped: {exc}", flush=True)
-                time.sleep(1.5)
+                print(f"[image_engine] Scene {scene_id} Horde skipped: {exc}", flush=True)
 
+        # 3. Procedural fallback
         if not success:
             print(f"[image_engine] Rendering stylized procedural artwork for Scene {scene_id}...", flush=True)
             _render_procedural_scene(

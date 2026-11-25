@@ -135,8 +135,9 @@ def _enrich_visual_prompts(story: dict, char_data: dict = None):
             scene["mood"] = "wonder"
 
         base_prompt = scene.get("visual_prompt", "").strip()
+        # Put scene action & environment FIRST so each scene has a distinct composition
         if char_anchor and char_anchor.lower() not in base_prompt.lower():
-            scene["full_image_prompt"] = f"{char_anchor}, {base_prompt}, {style}"
+            scene["full_image_prompt"] = f"{base_prompt}, featuring {char_anchor}, {style}"
         else:
             scene["full_image_prompt"] = f"{base_prompt}, {style}"
 

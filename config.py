@@ -31,18 +31,18 @@ ASPECT_PRESETS = {
     "9:16": {
         "width": 1080,
         "height": 1920,
-        "image_width": 512,
-        "image_height": 512,  # Safe for free AI Horde tier; FFmpeg crops/scales to 9:16
-        "subtitle_font_size": 20,
-        "subtitle_margin_v": 160,
+        "image_width": 768,
+        "image_height": 1344,
+        "subtitle_font_size": 16,
+        "subtitle_margin_v": 35,
     },
     "16:9": {
         "width": 1920,
         "height": 1080,
-        "image_width": 512,
-        "image_height": 512,  # Safe for free AI Horde tier; FFmpeg crops/scales to 16:9
-        "subtitle_font_size": 24,
-        "subtitle_margin_v": 55,
+        "image_width": 1344,
+        "image_height": 768,
+        "subtitle_font_size": 18,
+        "subtitle_margin_v": 25,
     },
 }
 DEFAULT_ASPECT = "9:16"
